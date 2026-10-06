@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.Serialization;
 
 namespace McBilly.Proto
 {
@@ -42,6 +43,26 @@ namespace McBilly.Proto
         public float perfectDodgeWindow = .25f;
         [Tooltip("A projectile closer than this to your start tile (and heading at it) counts as a perfect dodge.")]
         public float perfectDodgeProjectileRange = 1.6f;
+
+        [Header("Shooting")]
+        [Tooltip("Seconds between shots (holding the button fires at this rate).")]
+        [Min(.02f)] public float shotCooldown = .3f;
+        [Tooltip("Shot speed in tiles per second.")]
+        [Min(.5f)] public float shotSpeed = 12f;
+        [Tooltip("Patience each shot takes off an enemy (a parry takes 12).")]
+        [Min(0f)] public float shotPatienceDamage = 4f;
+        [Tooltip("Hold the shoot button to keep firing at the cooldown rate.")]
+        public bool holdToAutoFire = true;
+
+        [Header("Vault & gaps")]
+        [Tooltip("Seconds McBilly is in the air when vaulting a crate (movement is locked meanwhile).")]
+        [Min(.02f)] public float vaultTime = .22f;
+        [Tooltip("If on, McBilly can't be hit while in the air during a vault.")]
+        public bool vaultInvulnerable = false;
+        [Tooltip("Seconds of the falling animation after walking into a gap.")]
+        [Min(.05f)] public float fallTime = .45f;
+        [Tooltip("Health lost when falling into a gap.")]
+        [Min(0)] public int fallDamage = 1;
 
         [Header("General")]
         [Tooltip("Presses are remembered this long, so inputs during hitstop / dash aren't dropped.")]
@@ -128,8 +149,20 @@ namespace McBilly.Proto
         public int mixedBoardWidth = 9;
         public int mixedBoardHeight = 9;
 
-        [Tooltip("How many grid tiles are randomly missing each round. McBilly can't walk or dash through them. Capped in code at 10% of the grid's tiles. A new layout is rolled every restart (R).")]
-        [Min(0)] public int max_missing_tiles = 0;
+        [Header("Special tiles (new random layout every restart)")]
+        [Tooltip("PILLARS: hard obstacles. Nothing walks, dodges or vaults through. Capped in code at 10% of the grid's tiles.")]
+        [FormerlySerializedAs("max_missing_tiles")]
+        [Min(0)] public int max_pillar_tiles = 0;
+        [Tooltip("VAULTS: low crates. Block walking and dodging, but Space (or A) while facing one vaults McBilly over it. Capped in code at 10% of the grid's tiles.")]
+        [Min(0)] public int max_vault_tiles = 0;
+        [Tooltip("GAPS: holes. Dodge over them; walk into one and McBilly falls (loses health, returns to the tile he stepped from). Capped in code at 10% of the grid's tiles.")]
+        [Min(0)] public int max_gap_tiles = 0;
+        [Tooltip("BROKEN: floor that cracks when McBilly lands on it, blinks, breaks into a gap, then repairs itself. Capped in code at 10% of the grid's tiles.")]
+        [Min(0)] public int max_broken_tiles = 0;
+        [Tooltip("Seconds a broken tile blinks after being stepped on before it breaks.")]
+        [Min(.05f)] public float brokenCrackTime = 1.5f;
+        [Tooltip("Seconds a broken tile stays a gap before it comes back.")]
+        [Min(.05f)] public float brokenDownTime = 3f;
 
         // Older scenes stored a simple on/off switch; it's converted to Enemy Placement on load.
         [SerializeField, HideInInspector] bool enemiesOutsideGrid;
@@ -151,6 +184,7 @@ namespace McBilly.Proto
 
         public PlayerTuning player = new PlayerTuning();
         public EnemyTuning enemy = new EnemyTuning();
+        public CoinTuning coins = new CoinTuning();
 
         [Header("Juice")]
         public float parryHitstop = .06f;
@@ -166,10 +200,13 @@ namespace McBilly.Proto
         public readonly List<Projectile> Projectiles = new List<Projectile>();
         public readonly List<TileWarning> Warnings = new List<TileWarning>();
         public readonly List<Enemy> Enemies = new List<Enemy>();
+        public readonly List<Coin> Coins = new List<Coin>();
 
         public int Dismissed { get; private set; }
         public float Elapsed { get; private set; }
         int parries, perfectDodges;
+        int coinsCollected, parriesTowardCoin, dodgesTowardCoin;
+        int lastPerfectDodgeFrame = -1;
 
         float spawnTimer;
         float hitstopUntil;
@@ -230,6 +267,7 @@ namespace McBilly.Proto
             Warnings.Clear();
             Enemies.Clear();
             popups.Clear();
+            Coins.Clear();
             Time.timeScale = 1f;
             hitstopUntil = 0f;
 
@@ -238,10 +276,10 @@ namespace McBilly.Proto
             Board = new GameObject("Board").AddComponent<Board>();
             Board.transform.SetParent(Root, false);
             var start = new Vector2Int(Width / 2, Height / 2);
-            int cap = Board.MaxMissingFor(Width, Height);
-            if (max_missing_tiles > cap)
-                Debug.Log($"[McBilly] max_missing_tiles {max_missing_tiles} capped to {cap} (10% of {Width * Height} tiles).");
-            Board.Build(Width, Height, UsesRail, Mathf.Min(max_missing_tiles, cap), start);
+            int cap = Board.MaxSpecialFor(Width, Height);
+            if (max_pillar_tiles > cap || max_vault_tiles > cap || max_gap_tiles > cap || max_broken_tiles > cap)
+                Debug.Log($"[McBilly] Special tiles are capped to {cap} of each kind (10% of {Width * Height} tiles).");
+            Board.Build(Width, Height, UsesRail, max_pillar_tiles, max_vault_tiles, max_gap_tiles, max_broken_tiles, start);
 
             Player = new GameObject("McBilly").AddComponent<PlayerController>();
             Player.transform.SetParent(Root, false);
@@ -249,6 +287,7 @@ namespace McBilly.Proto
 
             State = GameState.Playing;
             Dismissed = parries = perfectDodges = 0;
+            coinsCollected = parriesTowardCoin = dodgesTowardCoin = 0;
             Elapsed = 0f;
             spawnTimer = .4f;
         }
@@ -271,6 +310,7 @@ namespace McBilly.Proto
 
             Elapsed += Time.deltaTime;
             HandleSpawning(Time.deltaTime);
+            TryCollectCoin(Player.Cell);
         }
 
         void LateUpdate()
@@ -392,6 +432,11 @@ namespace McBilly.Proto
         public void OnParry(Enemy source)
         {
             parries++;
+            if (coins.parriesPerCoin > 0 && ++parriesTowardCoin >= coins.parriesPerCoin)
+            {
+                parriesTowardCoin = 0;
+                SpawnCoins();
+            }
             Vector3 front = Player.CellWorld + (Vector3)(Dir8.Unit(Player.Facing) * .6f);
             FadeFx.Spawn(Prims.Ring, Color.white, front, 0f, Vector3.one * .3f, Vector3.one * 1.3f, .18f, 45, true);
             Popup("PARRY", Player.CellWorld + Vector3.up * .8f, Color.white);
@@ -427,15 +472,16 @@ namespace McBilly.Proto
         public void CreditPerfectDodge(Enemy source)
         {
             perfectDodges++;
+            lastPerfectDodgeFrame = Time.frameCount;
             Popup("PERFECT DODGE", Player.CellWorld + Vector3.up * .8f, Palette.Player);
             if (source != null && !source.Leaving)
                 source.LosePatience(enemy.perfectDodgePatienceDamage, source.transform.position - Player.CellWorld);
             Hitstop(parryHitstop * .7f);
         }
 
-        public void OnPlayerHurt()
+        public void OnPlayerHurt(string popup = "OUCH")
         {
-            Popup("OUCH", Player.CellWorld + Vector3.up * .8f, Palette.Warning);
+            Popup(popup, Player.CellWorld + Vector3.up * .8f, Palette.Warning);
             Hitstop(hurtHitstop);
             Shake(.25f, .18f);
             if (Player.HP <= 0)
@@ -443,6 +489,53 @@ namespace McBilly.Proto
                 State = GameState.GameOver;
                 gameOverTime = Time.unscaledTime;
             }
+        }
+
+        // ---------------- Coins ----------------
+
+        /// <summary>Called by the player every time a dodge happens.</summary>
+        public void OnPlayerDodged()
+        {
+            bool perfect = lastPerfectDodgeFrame == Time.frameCount;
+            if (coins.dodgesPerCoin <= 0 || (coins.onlyPerfectDodgesCount && !perfect)) return;
+            if (++dodgesTowardCoin >= coins.dodgesPerCoin)
+            {
+                dodgesTowardCoin = 0;
+                SpawnCoins();
+            }
+        }
+
+        void SpawnCoins()
+        {
+            for (int n = 0; n < coins.coinsPerSpawn && Coins.Count < coins.maxCoinsInArena; n++)
+            {
+                for (int i = 0; i < 60; i++)
+                {
+                    var c = new Vector2Int(Random.Range(0, Board.Width), Random.Range(0, Board.Height));
+                    if (!Board.IsWalkable(c) || Board.EnemyAt(c) != null || CoinAt(c) != null) continue;
+                    if (Board.Chebyshev(c, Player.Cell) < coins.minDistanceFromPlayer) continue;
+                    Coin.Spawn(c, coins.coinLifetime);
+                    break;
+                }
+            }
+        }
+
+        Coin CoinAt(Vector2Int c)
+        {
+            foreach (var coin in Coins) if (coin != null && coin.Cell == c) return coin;
+            return null;
+        }
+
+        /// <summary>Picks up a coin on this tile, if there is one.</summary>
+        public void TryCollectCoin(Vector2Int c)
+        {
+            if (State != GameState.Playing) return;
+            var coin = CoinAt(c);
+            if (coin == null) return;
+            Coins.Remove(coin);
+            coinsCollected++;
+            Popup("+1", Board.ToWorld(c) + Vector3.up * .6f, Palette.Coin);
+            coin.Collect();
         }
 
         // ---------------- Juice ----------------
@@ -493,14 +586,33 @@ namespace McBilly.Proto
             GUI.Label(new Rect(pad, pad + pip + 10 * ui, 900 * ui, 40 * ui),
                 $"Dismissed {Dismissed}    Time {secs / 60}:{secs % 60:00}    Parries {parries}    Perfect dodges {perfectDodges}", hudStyle);
 
+            // Coins: total, plus progress toward the next one.
+            var coinStyle = new GUIStyle(hudStyle);
+            coinStyle.normal.textColor = Palette.Coin;
+            string next = "";
+            if (coins.parriesPerCoin > 0) next += $"parries {parriesTowardCoin}/{coins.parriesPerCoin}";
+            if (coins.dodgesPerCoin > 0) next += (next.Length > 0 ? "  ·  " : "") + $"{(coins.onlyPerfectDodgesCount ? "perfect dodges" : "dodges")} {dodgesTowardCoin}/{coins.dodgesPerCoin}";
+            GUI.Label(new Rect(pad, pad + pip + 44 * ui, 900 * ui, 40 * ui),
+                $"Coins {coinsCollected}" + (next.Length > 0 ? $"    next coin: {next}" : ""), coinStyle);
+
             if (showControls)
             {
                 var hint = new GUIStyle(hudStyle) { fontSize = Mathf.RoundToInt(18 * ui), fontStyle = FontStyle.Normal, alignment = TextAnchor.LowerLeft };
                 hint.normal.textColor = new Color(1, 1, 1, .55f);
-                GUI.Label(new Rect(pad, Screen.height - 140 * ui, Screen.width, 120 * ui),
+                GUI.Label(new Rect(pad, Screen.height - 160 * ui, Screen.width, 140 * ui),
                     "MOVE  WASD / D-pad / L-stick      LOOK  Mouse / R-stick / Arrows\n" +
                     "PARRY  RB / LMB / J / Space       DODGE  LB / RMB / K / Shift\n" +
+                    "SHOOT  RT / F / Middle mouse      VAULT  Space / (A) while facing a crate\n" +
                     "R / Start: restart      F1: hide controls", hint);
+            }
+
+            // "Space" prompt over a crate McBilly can vault right now.
+            if (State == GameState.Playing && Player.CanVault(out var crate))
+            {
+                Vector3 sp = Cam.WorldToScreenPoint(Board.ToWorld(crate) + Vector3.up * .55f);
+                var prompt = new GUIStyle(popupStyle) { fontSize = Mathf.RoundToInt(16 * ui) };
+                prompt.normal.textColor = Palette.VaultEdge;
+                GUI.Label(new Rect(sp.x - 100 * ui, Screen.height - sp.y - 14 * ui, 200 * ui, 28 * ui), "SPACE: VAULT", prompt);
             }
 
             // Floating popups (real time, so they keep moving during hitstop)

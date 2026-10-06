@@ -164,13 +164,18 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   enemyPlacement: 2
-  boardWidth: 11
-  boardHeight: 9
+  boardWidth: 6
+  boardHeight: 6
   outsideBoardWidth: 7
   outsideBoardHeight: 7
   mixedBoardWidth: 9
   mixedBoardHeight: 9
-  max_missing_tiles: 40
+  max_pillar_tiles: 40
+  max_vault_tiles: 5
+  max_gap_tiles: 0
+  max_broken_tiles: 5
+  brokenCrackTime: 1.5
+  brokenDownTime: 3
   enemiesOutsideGrid: 0
   player:
     moveSpeed: 6
@@ -182,12 +187,16 @@ MonoBehaviour:
     parryWhiffRecovery: 0.18
     parryFacingTolerance: 1
     lateParryGrace: 0.07
-    dodgeDistance: 2
+    dodgeDistance: 1
     dodgeVisualTime: 0.08
     dodgeInvulnerability: 0.2
     dodgeCooldownTime: 1
     perfectDodgeWindow: 0.25
     perfectDodgeProjectileRange: 1.6
+    vaultTime: 0.22
+    vaultInvulnerable: 0
+    fallTime: 0.45
+    fallDamage: 1
     inputBuffer: 0.12
     maxHealth: 5
     hurtInvulnerability: 0.8
@@ -218,6 +227,14 @@ MonoBehaviour:
     bruteZone: 2
     casterZone: 1
     offGridChanceForEither: 0.5
+  coins:
+    parriesPerCoin: 3
+    dodgesPerCoin: 5
+    onlyPerfectDodgesCount: 0
+    coinsPerSpawn: 1
+    maxCoinsInArena: 6
+    coinLifetime: 12
+    minDistanceFromPlayer: 2
   parryHitstop: 0.06
   hurtHitstop: 0.09
   screenShake: 1
