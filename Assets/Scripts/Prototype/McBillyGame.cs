@@ -160,7 +160,7 @@ namespace McBilly.Proto
 
         public GameState State { get; private set; }
         public Board Board { get; private set; }
-        public PlayerController Player { get; private set; }
+        public OldPlayerController OldPlayer { get; private set; }
         public Camera Cam { get; private set; }
         public Transform Root { get; private set; }
         public readonly List<Projectile> Projectiles = new List<Projectile>();
@@ -243,9 +243,9 @@ namespace McBilly.Proto
                 Debug.Log($"[McBilly] max_missing_tiles {max_missing_tiles} capped to {cap} (10% of {Width * Height} tiles).");
             Board.Build(Width, Height, UsesRail, Mathf.Min(max_missing_tiles, cap), start);
 
-            Player = new GameObject("McBilly").AddComponent<PlayerController>();
-            Player.transform.SetParent(Root, false);
-            Player.Init(start, player.maxHealth);
+            OldPlayer = new GameObject("McBilly").AddComponent<OldPlayerController>();
+            OldPlayer.transform.SetParent(Root, false);
+            OldPlayer.Init(start, player.maxHealth);
 
             State = GameState.Playing;
             Dismissed = parries = perfectDodges = 0;
@@ -334,7 +334,7 @@ namespace McBilly.Proto
                 cell = onRail
                     ? Board.Ring[Random.Range(0, Board.Ring.Count)]
                     : new Vector2Int(Random.Range(0, Width), Random.Range(0, Height));
-                found = Board.IsFree(cell, onRail) && Board.Chebyshev(cell, Player.Cell) >= 3;
+                found = Board.IsFree(cell, onRail) && Board.Chebyshev(cell, OldPlayer.Cell) >= 3;
             }
             if (!found) return;
 
@@ -371,32 +371,32 @@ namespace McBilly.Proto
         /// <summary>Returns true if the projectile is consumed.</summary>
         public bool ResolveProjectileHit(Projectile p)
         {
-            if (Player.IsDodging) return false;                       // i-frames: it flies through
+            if (OldPlayer.IsDodging) return false;                       // i-frames: it flies through
             Vector2 toward = -p.Velocity;                              // from McBilly back toward the shooter
-            if (Player.TryParry(toward)) { OnParry(p.Source); return true; }
-            if (Player.IsHurtInvulnerable) return false;
-            Player.QueueHit(p.Source, toward);
+            if (OldPlayer.TryParry(toward)) { OnParry(p.Source); return true; }
+            if (OldPlayer.IsHurtInvulnerable) return false;
+            OldPlayer.QueueHit(p.Source, toward);
             return true;
         }
 
         /// <summary>Melee / beam / anything that lands on McBilly's tile instantly.</summary>
         public void ResolveDirectHit(Enemy source)
         {
-            if (Player.IsDodging) return;
-            Vector2 toward = (Vector2)(source.transform.position - Player.CellWorld);
-            if (Player.TryParry(toward)) { OnParry(source); return; }
-            if (Player.IsHurtInvulnerable) return;
-            Player.QueueHit(source, toward);
+            if (OldPlayer.IsDodging) return;
+            Vector2 toward = (Vector2)(source.transform.position - OldPlayer.CellWorld);
+            if (OldPlayer.TryParry(toward)) { OnParry(source); return; }
+            if (OldPlayer.IsHurtInvulnerable) return;
+            OldPlayer.QueueHit(source, toward);
         }
 
         public void OnParry(Enemy source)
         {
             parries++;
-            Vector3 front = Player.CellWorld + (Vector3)(Dir8.Unit(Player.Facing) * .6f);
+            Vector3 front = OldPlayer.CellWorld + (Vector3)(Dir8.Unit(OldPlayer.Facing) * .6f);
             FadeFx.Spawn(Prims.Ring, Color.white, front, 0f, Vector3.one * .3f, Vector3.one * 1.3f, .18f, 45, true);
-            Popup("PARRY", Player.CellWorld + Vector3.up * .8f, Color.white);
+            Popup("PARRY", OldPlayer.CellWorld + Vector3.up * .8f, Color.white);
             if (source != null && !source.Leaving)
-                source.LosePatience(enemy.parryPatienceDamage, source.transform.position - Player.CellWorld);
+                source.LosePatience(enemy.parryPatienceDamage, source.transform.position - OldPlayer.CellWorld);
             Hitstop(parryHitstop);
             Shake(.1f, .08f);
         }
@@ -427,18 +427,18 @@ namespace McBilly.Proto
         public void CreditPerfectDodge(Enemy source)
         {
             perfectDodges++;
-            Popup("PERFECT DODGE", Player.CellWorld + Vector3.up * .8f, Palette.Player);
+            Popup("PERFECT DODGE", OldPlayer.CellWorld + Vector3.up * .8f, Palette.Player);
             if (source != null && !source.Leaving)
-                source.LosePatience(enemy.perfectDodgePatienceDamage, source.transform.position - Player.CellWorld);
+                source.LosePatience(enemy.perfectDodgePatienceDamage, source.transform.position - OldPlayer.CellWorld);
             Hitstop(parryHitstop * .7f);
         }
 
         public void OnPlayerHurt()
         {
-            Popup("OUCH", Player.CellWorld + Vector3.up * .8f, Palette.Warning);
+            Popup("OUCH", OldPlayer.CellWorld + Vector3.up * .8f, Palette.Warning);
             Hitstop(hurtHitstop);
             Shake(.25f, .18f);
-            if (Player.HP <= 0)
+            if (OldPlayer.HP <= 0)
             {
                 State = GameState.GameOver;
                 gameOverTime = Time.unscaledTime;
@@ -469,7 +469,7 @@ namespace McBilly.Proto
 
         void OnGUI()
         {
-            if (Cam == null || Player == null) return;
+            if (Cam == null || OldPlayer == null) return;
             float ui = Screen.height / 1080f;
             if (popupStyle == null)
             {
@@ -484,10 +484,10 @@ namespace McBilly.Proto
 
             // Health pips
             float pip = 26 * ui, pad = 24 * ui;
-            for (int i = 0; i < Player.MaxHP; i++)
+            for (int i = 0; i < OldPlayer.MaxHP; i++)
             {
                 var r = new Rect(pad + i * (pip + 8 * ui), pad, pip, pip);
-                DrawRect(r, i < Player.HP ? Palette.Player : new Color(1, 1, 1, .12f));
+                DrawRect(r, i < OldPlayer.HP ? Palette.Player : new Color(1, 1, 1, .12f));
             }
             int secs = Mathf.FloorToInt(Elapsed);
             GUI.Label(new Rect(pad, pad + pip + 10 * ui, 900 * ui, 40 * ui),

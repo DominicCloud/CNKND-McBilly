@@ -176,7 +176,7 @@ namespace McBilly.Proto
         public bool IsFree(Vector2Int c, bool rail, bool blockPlayerTile = true)
         {
             if (!IsEnemyCell(c, rail) || EnemyAt(c) != null) return false;
-            return !blockPlayerTile || McBillyGame.I.Player.Cell != c;
+            return !blockPlayerTile || McBillyGame.I.OldPlayer.Cell != c;
         }
 
         public static int Chebyshev(Vector2Int a, Vector2Int b) => Mathf.Max(Mathf.Abs(a.x - b.x), Mathf.Abs(a.y - b.y));

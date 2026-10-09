@@ -38,7 +38,7 @@ namespace McBilly.Proto
 
             if (!spent)
             {
-                Vector2 toPlayer = (Vector2)(g.Player.CellWorld - transform.position);
+                Vector2 toPlayer = (Vector2)(g.OldPlayer.CellWorld - transform.position);
                 if (toPlayer.sqrMagnitude < .42f * .42f)
                 {
                     if (g.ResolveProjectileHit(this)) { Destroy(gameObject); return; }

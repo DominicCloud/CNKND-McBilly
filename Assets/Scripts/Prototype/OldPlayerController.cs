@@ -12,7 +12,7 @@ namespace McBilly.Proto
     ///  - Every button press is buffered briefly, so presses during hitstop / dash aren't lost.
     ///  - A short "late parry" grace converts a hit into a parry if you were a few ms late.
     /// </summary>
-    public class PlayerController : MonoBehaviour
+    public class OldPlayerController : MonoBehaviour
     {
         public Vector2Int Cell { get; private set; }
         public int Facing { get; private set; }
