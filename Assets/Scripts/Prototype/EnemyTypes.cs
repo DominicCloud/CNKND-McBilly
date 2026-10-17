@@ -49,8 +49,8 @@ namespace McBilly.Proto
         /// <summary>On the rail: lined up with the player, not point-blank, and the shot enters the grid.</summary>
         bool CanFireFrom(Vector2Int c)
         {
-            if (!Aligned(c) || Board.Chebyshev(c, Player.Cell) < 2) return false;
-            return Board.InBounds(c + Dir8.Vec(Dir8.FromVector((Vector2)(Player.Cell - c))));
+            if (!Aligned(c) || Board.Chebyshev(c, OldPlayer.Cell) < 2) return false;
+            return Board.InBounds(c + Dir8.Vec(Dir8.FromVector((Vector2)(OldPlayer.Cell - c))));
         }
 
         Vector2Int BestRailSpot()
@@ -69,7 +69,7 @@ namespace McBilly.Proto
 
         bool Aligned(Vector2Int c)
         {
-            Vector2Int d = Player.Cell - c;
+            Vector2Int d = OldPlayer.Cell - c;
             return d.x == 0 || d.y == 0 || Mathf.Abs(d.x) == Mathf.Abs(d.y);
         }
 
@@ -80,7 +80,7 @@ namespace McBilly.Proto
             for (int i = 0; i < 8; i++)
             {
                 var c = Cell + Dir8.Vec(start + i);
-                if (Board.IsFree(c, OnRail) && Aligned(c) && Board.Chebyshev(c, Player.Cell) >= 2) return TryStep(c);
+                if (Board.IsFree(c, OnRail) && Aligned(c) && Board.Chebyshev(c, OldPlayer.Cell) >= 2) return TryStep(c);
             }
             return false;
         }
@@ -89,7 +89,7 @@ namespace McBilly.Proto
         {
             state = State.Windup;
             timer = G.enemy.shooterWindup;
-            aimDir = Dir8.FromVector((Vector2)(Player.Cell - Cell));
+            aimDir = Dir8.FromVector((Vector2)(OldPlayer.Cell - Cell));
 
             var step = Dir8.Vec(aimDir);
             for (var c = Cell + step; Board.InBounds(c); c += step)
@@ -142,10 +142,10 @@ namespace McBilly.Proto
             switch (state)
             {
                 case State.Approach:
-                    if (Board.Chebyshev(Cell, Player.Cell) <= Reach) StartWindup();
+                    if (Board.Chebyshev(Cell, OldPlayer.Cell) <= Reach) StartWindup();
                     else if (OnRail)
                     {
-                        var t = NearestRailCellTo(Player.Cell);
+                        var t = NearestRailCellTo(OldPlayer.Cell);
                         if (t != Cell) TryStep(Board.RingStep(Cell, t));
                         timer = G.enemy.bruteRailStepInterval;
                     }
@@ -182,7 +182,7 @@ namespace McBilly.Proto
 
         void StepToward()
         {
-            Vector2Int d = Player.Cell - Cell;
+            Vector2Int d = OldPlayer.Cell - Cell;
             var h = new Vector2Int(System.Math.Sign(d.x), 0);
             var v = new Vector2Int(0, System.Math.Sign(d.y));
             bool horizontalFirst = Mathf.Abs(d.x) > Mathf.Abs(d.y) || (Mathf.Abs(d.x) == Mathf.Abs(d.y) && Random.value < .5f);
@@ -209,7 +209,7 @@ namespace McBilly.Proto
         void Slam()
         {
             bool hit = false;
-            foreach (var w in warnings) if (w != null && w.Cell == Player.Cell) hit = true;
+            foreach (var w in warnings) if (w != null && w.Cell == OldPlayer.Cell) hit = true;
             ClearWarnings();
 
             FadeFx.Spawn(Prims.Square, Palette.Brute.WithAlpha(.5f), World, 0f, Vector3.one, Vector3.one * (2 * Reach + 1), .2f, 3);
@@ -255,7 +255,7 @@ namespace McBilly.Proto
 
             if (state == State.Idle)
             {
-                bool aligned = Cell.x == Player.Cell.x || Cell.y == Player.Cell.y;
+                bool aligned = Cell.x == OldPlayer.Cell.x || Cell.y == OldPlayer.Cell.y;
                 if (!aligned)
                 {
                     timer = BlinkToLane() ? .35f : .5f;
@@ -269,7 +269,7 @@ namespace McBilly.Proto
         bool BlinkToLane()
         {
             var options = new List<Vector2Int>();
-            var p = Player.Cell;
+            var p = OldPlayer.Cell;
             if (OnRail)
             {
                 // The four rail cells at the ends of the player's row and column.
@@ -298,7 +298,7 @@ namespace McBilly.Proto
         {
             state = State.Windup;
             timer = G.enemy.casterWindup;
-            Vector2Int d = Player.Cell - Cell;
+            Vector2Int d = OldPlayer.Cell - Cell;
             beamDir = new Vector2Int(System.Math.Sign(d.x), System.Math.Sign(d.y));
             for (var c = Cell + beamDir; Board.InBounds(c); c += beamDir)
                 warnings.Add(TileWarning.Create(this, c, G.enemy.casterWindup));
@@ -311,7 +311,7 @@ namespace McBilly.Proto
             foreach (var w in warnings)
             {
                 if (w == null) continue;
-                if (w.Cell == Player.Cell) hit = true;
+                if (w.Cell == OldPlayer.Cell) hit = true;
                 last = Board.ToWorld(w.Cell);
             }
             ClearWarnings();

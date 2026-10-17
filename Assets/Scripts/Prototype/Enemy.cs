@@ -17,7 +17,7 @@ namespace McBilly.Proto
 
         protected McBillyGame G => McBillyGame.I;
         protected Board Board => McBillyGame.I.Board;
-        protected PlayerController Player => McBillyGame.I.Player;
+        protected OldPlayerController OldPlayer => McBillyGame.I.OldPlayer;
 
         /// <summary>Seconds after spawning before the enemy starts acting.</summary>
         protected float arriveDelay = .7f;
