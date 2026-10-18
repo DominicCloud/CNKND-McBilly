@@ -3,6 +3,7 @@ using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Tilemaps;
+using UnityEngine.UIElements;
 
 public class PlayerController : MonoBehaviour
 {
@@ -41,6 +42,8 @@ public class PlayerController : MonoBehaviour
     [Header("Input Settings")]
     [Tooltip("Reference to the Input Action for movement.")]
     [SerializeField] private InputActionReference moveAction;
+    [Tooltip("Reference to the Input Action for Look direction.")]
+    [SerializeField] private InputActionReference lookAction;
     [Tooltip("Reference to the Input Action for dash.")]
     [SerializeField] private InputActionReference dashAction;
     [Tooltip("Reference to the Input Action for parry.")]
@@ -64,10 +67,12 @@ public class PlayerController : MonoBehaviour
     
     
     private Vector2 moveInput; // Stores the current movement input
+    private Vector2 lookInput; // Stores the current mouse input for look direction
     
     private void OnEnable()
     {
         moveAction.action.Enable();
+        lookAction.action.Enable();
         dashAction.action.Enable();
         parryAction.action.Enable();
 
@@ -79,6 +84,7 @@ public class PlayerController : MonoBehaviour
     private void OnDisable()
     {
         moveAction.action.Disable();
+        lookAction.action.Disable();
         dashAction.action.Disable();
         parryAction.action.Disable();
         
@@ -119,6 +125,8 @@ public class PlayerController : MonoBehaviour
     {
         Vector2 input = moveAction.action.ReadValue<Vector2>();
         Vector3Int direction = GetGridDirection(input);
+
+        CalculateLookDirection();
 
         // The input was released.
         if (direction == Vector3Int.zero)
@@ -224,5 +232,20 @@ public class PlayerController : MonoBehaviour
         Debug.Log("Parry action triggered!");
     }
     #endregion
-    
+
+    #region Look Direction
+    private void CalculateLookDirection()
+    {
+        Vector2 mouse_pos = Mouse.current.position.ReadValue();
+        Vector2 player_position = Camera.main.WorldToScreenPoint(transform.position);
+        Vector2 look_vector = mouse_pos - player_position;
+
+        float difference_angle = Vector2.SignedAngle(Vector2.up, look_vector);
+        float snapped_angle = (int)(difference_angle / 45f ) * 45f;
+        Quaternion targetRotation = Quaternion.Euler(0, 0, snapped_angle);
+        transform.rotation = Quaternion.Lerp(transform.rotation, targetRotation, Time.deltaTime * 10f);
+        Debug.Log(mouse_pos + " -- " + difference_angle);
+    }
+    #endregion Look Direction
+
 }

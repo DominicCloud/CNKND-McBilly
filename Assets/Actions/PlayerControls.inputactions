@@ -17,6 +17,16 @@
                     "priority": 0
                 },
                 {
+                    "name": "Look",
+                    "type": "Value",
+                    "id": "1a338a14-ce2a-4745-b56b-7e20f8b5bbfc",
+                    "expectedControlType": "Vector2",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": true,
+                    "priority": 0
+                },
+                {
                     "name": "Dash",
                     "type": "Button",
                     "id": "b08c2bf7-956d-4448-9f83-3604dbc1c065",
@@ -145,6 +155,28 @@
                     "processors": "",
                     "groups": "",
                     "action": "Move",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "31b8080e-80b4-4cec-81bb-77978010d890",
+                    "path": "<Mouse>/forwardButton",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Look",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "e6652163-d878-4c6c-9b02-3a873e86f66d",
+                    "path": "",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Look",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }

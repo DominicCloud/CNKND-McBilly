@@ -310,7 +310,7 @@ namespace McBilly.Proto
 
             Elapsed += Time.deltaTime;
             HandleSpawning(Time.deltaTime);
-            TryCollectCoin(Player.Cell);
+            TryCollectCoin(OldPlayer.Cell);
         }
 
         void LateUpdate()
@@ -437,7 +437,6 @@ namespace McBilly.Proto
                 parriesTowardCoin = 0;
                 SpawnCoins();
             }
-            Vector3 front = Player.CellWorld + (Vector3)(Dir8.Unit(Player.Facing) * .6f);
             Vector3 front = OldPlayer.CellWorld + (Vector3)(Dir8.Unit(OldPlayer.Facing) * .6f);
             FadeFx.Spawn(Prims.Ring, Color.white, front, 0f, Vector3.one * .3f, Vector3.one * 1.3f, .18f, 45, true);
             Popup("PARRY", OldPlayer.CellWorld + Vector3.up * .8f, Color.white);
@@ -474,7 +473,6 @@ namespace McBilly.Proto
         {
             perfectDodges++;
             lastPerfectDodgeFrame = Time.frameCount;
-            Popup("PERFECT DODGE", Player.CellWorld + Vector3.up * .8f, Palette.Player);
             Popup("PERFECT DODGE", OldPlayer.CellWorld + Vector3.up * .8f, Palette.Player);
             if (source != null && !source.Leaving)
                 source.LosePatience(enemy.perfectDodgePatienceDamage, source.transform.position - OldPlayer.CellWorld);
@@ -483,8 +481,7 @@ namespace McBilly.Proto
 
         public void OnPlayerHurt(string popup = "OUCH")
         {
-            Popup(popup, Player.CellWorld + Vector3.up * .8f, Palette.Warning);
-            Popup("OUCH", OldPlayer.CellWorld + Vector3.up * .8f, Palette.Warning);
+            Popup(popup, OldPlayer.CellWorld + Vector3.up * .8f, Palette.Warning);
             Hitstop(hurtHitstop);
             Shake(.25f, .18f);
             if (OldPlayer.HP <= 0)
@@ -516,7 +513,7 @@ namespace McBilly.Proto
                 {
                     var c = new Vector2Int(Random.Range(0, Board.Width), Random.Range(0, Board.Height));
                     if (!Board.IsWalkable(c) || Board.EnemyAt(c) != null || CoinAt(c) != null) continue;
-                    if (Board.Chebyshev(c, Player.Cell) < coins.minDistanceFromPlayer) continue;
+                    if (Board.Chebyshev(c, OldPlayer.Cell) < coins.minDistanceFromPlayer) continue;
                     Coin.Spawn(c, coins.coinLifetime);
                     break;
                 }
@@ -610,7 +607,7 @@ namespace McBilly.Proto
             }
 
             // "Space" prompt over a crate McBilly can vault right now.
-            if (State == GameState.Playing && Player.CanVault(out var crate))
+            if (State == GameState.Playing && OldPlayer.CanVault(out var crate))
             {
                 Vector3 sp = Cam.WorldToScreenPoint(Board.ToWorld(crate) + Vector3.up * .55f);
                 var prompt = new GUIStyle(popupStyle) { fontSize = Mathf.RoundToInt(16 * ui) };
