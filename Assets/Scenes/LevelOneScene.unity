@@ -1279,6 +1279,37 @@ Tilemap:
     e31: 0
     e32: 0
     e33: 1
+--- !u!1 &396120569
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 396120570}
+  m_Layer: 0
+  m_Name: AudioManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &396120570
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 396120569}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &731626937
 GameObject:
   m_ObjectHideFlags: 0
@@ -1327,11 +1358,46 @@ MonoBehaviour:
   groundTilemap: {fileID: 138824313}
   moveSpeed: 5
   startingCell: {x: 4, y: 4, z: 0}
+  wallTilemap: {fileID: 0}
   moveAction: {fileID: 4239703602831201975, guid: 02ec27f1852720a46999752ae7b10af4, type: 3}
   dashAction: {fileID: 2352174140032909689, guid: 02ec27f1852720a46999752ae7b10af4, type: 3}
   parryAction: {fileID: -4939749809275443652, guid: 02ec27f1852720a46999752ae7b10af4, type: 3}
   initialRepeatDelay: 0.15
   repeatInterval: 0.1
+  dashDistance: 3
+  dashDuration: 0.12
+  dashCooldown: 0.4
+  dashIFrameDuration: 0.15
+  dashCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  dashTrail: {fileID: 0}
+  playerSprite: {fileID: 132352237}
+  ghostColor: {r: 0.7058824, g: 0.05490196, b: 0.05490196, a: 0.6}
+  ghostFadeTime: 0.3
+  ghostSpawnInterval: 0.025
+  dashSpriteAlpha: 0.35
 --- !u!1 &1157927186
 GameObject:
   m_ObjectHideFlags: 0
@@ -1542,3 +1608,4 @@ SceneRoots:
   - {fileID: 1356856335}
   - {fileID: 130849557}
   - {fileID: 731626938}
+  - {fileID: 396120570}
