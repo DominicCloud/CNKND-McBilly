@@ -3,6 +3,14 @@ using UnityEngine;
 
 namespace McBilly.Proto
 {
+    /// <summary>
+    /// Floor: normal.  Pillar: hard obstacle, nothing gets through.
+    /// Vault: blocks walking and dodging, but McBilly can vault over it (Space while facing it).
+    /// Gap: a hole. Dodge over it; walk into it and you fall (lose 1 health, back to where you stepped from).
+    /// Broken: floor that cracks when McBilly lands on it, blinks, then acts as a Gap until it repairs itself.
+    /// </summary>
+    public enum TileKind { Floor, Pillar, Vault, Gap, Broken }
+
     /// <summary>The arena: tile visuals, cell/world conversion and enemy occupancy.</summary>
     public class Board : MonoBehaviour
     {
@@ -17,20 +25,20 @@ namespace McBilly.Proto
 
         readonly Dictionary<Vector2Int, Enemy> occupants = new Dictionary<Vector2Int, Enemy>();
 
-        /// <summary>Missing tiles: nobody can stand on, walk into or dash through them. Attacks still pass over.</summary>
-        readonly HashSet<Vector2Int> missing = new HashSet<Vector2Int>();
-        public int MissingCount => missing.Count;
+        /// <summary>Special tiles. Anything not in here is plain floor.</summary>
+        readonly Dictionary<Vector2Int, TileKind> special = new Dictionary<Vector2Int, TileKind>();
+        readonly Dictionary<Vector2Int, BreakableTile> breakables = new Dictionary<Vector2Int, BreakableTile>();
 
-        /// <summary>The most tiles that may be missing: 10% of the grid, rounded down.</summary>
-        public static int MaxMissingFor(int width, int height) => Mathf.FloorToInt(width * height * .1f);
+        /// <summary>The most tiles of one special kind: 10% of the grid, rounded down.</summary>
+        public static int MaxSpecialFor(int width, int height) => Mathf.FloorToInt(width * height * .1f);
 
-        public void Build(int width, int height, bool showRail = false, int missingTiles = 0, Vector2Int keepClear = default)
+        public void Build(int width, int height, bool showRail, int pillars, int vaults, int gaps, int broken, Vector2Int keepClear)
         {
             Width = width;
             Height = height;
             HasRail = showRail;
             BuildRing();
-            PickMissingTiles(missingTiles, keepClear);
+            PickSpecialTiles(pillars, vaults, gaps, broken, keepClear);
 
             var frame = Prims.NewSprite("Frame", Prims.Square, Palette.Frame, transform, -10);
             frame.transform.localScale = new Vector3(width + .4f, height + .4f, 1f);
@@ -39,22 +47,43 @@ namespace McBilly.Proto
             for (int x = 0; x < width; x++)
             {
                 var c = new Vector2Int(x, y);
-                if (missing.Contains(c))
+                switch (Kind(c))
                 {
-                    // A hole: no floor, just a dark pit with a faint cross.
-                    var pit = Prims.NewSprite($"Missing {x},{y}", Prims.Square, Palette.Frame, transform, -5, .94f);
-                    pit.transform.position = ToWorld(c);
-                    for (int k = 0; k < 2; k++)
+                    case TileKind.Pillar:
+                        // A raised block: drop shadow + solid top with a lit edge.
+                        Tile(c, $"Pillar {x},{y}", Palette.PillarShadow, -5, .94f, new Vector3(.06f, -.08f));
+                        Tile(c, "PillarTop", Palette.Pillar, -4, .82f, new Vector3(-.02f, .04f));
+                        Tile(c, "PillarEdge", Palette.PillarEdge, -3, 1f, new Vector3(-.02f, .4f), new Vector3(.82f, .07f));
+                        break;
+
+                    case TileKind.Vault:
+                        // Floor with a low crate on it: you can't walk or dash through, but you can vault it.
+                        Tile(c, $"Vault {x},{y}", (x + y) % 2 == 0 ? Palette.TileA : Palette.TileB, -5, .94f, Vector3.zero);
+                        Tile(c, "Crate", Palette.Vault, -4, .7f, Vector3.zero);
+                        Tile(c, "CrateInner", Palette.VaultDark, -3, .46f, Vector3.zero);
+                        Tile(c, "CrateTop", Palette.VaultEdge, -2, 1f, new Vector3(0f, .31f), new Vector3(.7f, .08f));
+                        break;
+
+                    case TileKind.Gap:
+                        // A hole in the floor: dark pit with a faint rim. Dash over it; walk in and you fall.
+                        Tile(c, $"Gap {x},{y}", Palette.GapRim, -5, .94f, Vector3.zero);
+                        Tile(c, "Pit", Palette.Gap, -4, .8f, Vector3.zero);
+                        break;
+
+                    case TileKind.Broken:
                     {
-                        var bar = Prims.NewSprite("X", Prims.Square, Palette.Rail, transform, -4);
-                        bar.transform.position = ToWorld(c);
-                        bar.transform.rotation = Quaternion.Euler(0, 0, k == 0 ? 45f : -45f);
-                        bar.transform.localScale = new Vector3(.75f, .05f, 1f);
+                        var bt = new GameObject($"Broken {x},{y}").AddComponent<BreakableTile>();
+                        bt.transform.SetParent(transform, false);
+                        bt.transform.position = ToWorld(c);
+                        bt.Init((x + y) % 2 == 0 ? Palette.TileA : Palette.TileB);
+                        breakables[c] = bt;
+                        break;
                     }
-                    continue;
+
+                    default:
+                        Tile(c, $"Tile {x},{y}", (x + y) % 2 == 0 ? Palette.TileA : Palette.TileB, -5, .94f, Vector3.zero);
+                        break;
                 }
-                var tile = Prims.NewSprite($"Tile {x},{y}", Prims.Square, (x + y) % 2 == 0 ? Palette.TileA : Palette.TileB, transform, -5, .94f);
-                tile.transform.position = ToWorld(c);
             }
 
             if (showRail)
@@ -68,34 +97,67 @@ namespace McBilly.Proto
             }
         }
 
-        void BuildRing()
+        void Tile(Vector2Int c, string name, Color color, int order, float scale, Vector3 offset, Vector3? size = null)
         {
-            Ring.Clear();
-            ringIndex.Clear();
-            int w = Width, h = Height;
-            for (int x = -1; x <= w; x++) Ring.Add(new Vector2Int(x, -1));     // bottom, left -> right
-            for (int y = 0; y <= h; y++) Ring.Add(new Vector2Int(w, y));       // right, bottom -> top
-            for (int x = w - 1; x >= -1; x--) Ring.Add(new Vector2Int(x, h));  // top, right -> left
-            for (int y = h - 1; y >= 0; y--) Ring.Add(new Vector2Int(-1, y));  // left, top -> bottom
-            for (int i = 0; i < Ring.Count; i++) ringIndex[Ring[i]] = i;
+            var sr = Prims.NewSprite(name, Prims.Square, color, transform, order, scale);
+            sr.transform.position = ToWorld(c) + offset;
+            if (size.HasValue) sr.transform.localScale = new Vector3(size.Value.x, size.Value.y, 1f);
         }
 
-        public bool IsRing(Vector2Int c) => ringIndex.ContainsKey(c);
+        /// <summary>What the tile is right now. A broken tile that's currently down reports as Gap.</summary>
+        public TileKind Kind(Vector2Int c)
+        {
+            if (!special.TryGetValue(c, out var k)) return TileKind.Floor;
+            if (k == TileKind.Broken && breakables.TryGetValue(c, out var b) && b.IsDown) return TileKind.Gap;
+            return k;
+        }
 
-        public bool IsMissing(Vector2Int c) => missing.Contains(c);
+        /// <summary>On the grid and plain floor (not a pillar, vault, gap or breakable tile). Enemies and coins use only these.</summary>
+        public bool IsWalkable(Vector2Int c) => InBounds(c) && !special.ContainsKey(c);
 
-        /// <summary>On the grid and not a missing tile.</summary>
-        public bool IsWalkable(Vector2Int c) => InBounds(c) && !missing.Contains(c);
+        /// <summary>McBilly can stand here right now: plain floor, or a breakable tile that hasn't broken yet.</summary>
+        public bool IsSolid(Vector2Int c)
+        {
+            if (!InBounds(c)) return false;
+            var k = Kind(c);
+            return k == TileKind.Floor || k == TileKind.Broken;
+        }
+
+        /// <summary>McBilly is standing here: if it's an intact breakable tile, start it cracking.</summary>
+        public void Step(Vector2Int c)
+        {
+            if (breakables.TryGetValue(c, out var b)) b.Trigger();
+        }
+
+        /// <summary>Closest plain floor tile with no enemy on it (used to climb out after a fall).</summary>
+        public Vector2Int NearestSafeCell(Vector2Int from)
+        {
+            var seen = new HashSet<Vector2Int> { from };
+            var queue = new Queue<Vector2Int>();
+            queue.Enqueue(from);
+            while (queue.Count > 0)
+            {
+                var c = queue.Dequeue();
+                if (Kind(c) == TileKind.Floor && InBounds(c) && EnemyAt(c) == null) return c;
+                for (int i = 0; i < 8; i++)
+                {
+                    var n = c + Dir8.Vec(i);
+                    if (InBounds(n) && seen.Add(n)) queue.Enqueue(n);
+                }
+            }
+            return from;
+        }
 
         /// <summary>
-        /// Randomly removes up to <paramref name="count"/> tiles (capped at 10% of the grid), never the
-        /// player's start tile or its neighbours, and never in a way that cuts the floor into separate islands.
+        /// Randomly places pillars, vaults, gaps, then breakable tiles (each capped at 10% of the grid), never on
+        /// the player's start tile or its neighbours, and never in a way that cuts the plain floor
+        /// into separate islands, so every floor tile can always be reached on foot.
         /// </summary>
-        void PickMissingTiles(int count, Vector2Int keepClear)
+        void PickSpecialTiles(int pillars, int vaults, int gaps, int broken, Vector2Int keepClear)
         {
-            missing.Clear();
-            count = Mathf.Clamp(count, 0, MaxMissingFor(Width, Height));
-            if (count == 0) return;
+            special.Clear();
+            breakables.Clear();
+            int cap = MaxSpecialFor(Width, Height);
 
             var candidates = new List<Vector2Int>();
             for (int y = 0; y < Height; y++)
@@ -110,11 +172,22 @@ namespace McBilly.Proto
                 (candidates[i], candidates[j]) = (candidates[j], candidates[i]);
             }
 
-            foreach (var c in candidates)
+            int next = 0;
+            Place(TileKind.Pillar, Mathf.Clamp(pillars, 0, cap));
+            Place(TileKind.Vault, Mathf.Clamp(vaults, 0, cap));
+            Place(TileKind.Gap, Mathf.Clamp(gaps, 0, cap));
+            Place(TileKind.Broken, Mathf.Clamp(broken, 0, cap));
+
+            void Place(TileKind kind, int count)
             {
-                if (missing.Count >= count) break;
-                missing.Add(c);
-                if (!FloorIsConnected(keepClear)) missing.Remove(c);
+                int placed = 0;
+                while (placed < count && next < candidates.Count)
+                {
+                    var c = candidates[next++];
+                    special[c] = kind;
+                    if (FloorIsConnected(keepClear)) placed++;
+                    else special.Remove(c);
+                }
             }
         }
 
@@ -133,8 +206,23 @@ namespace McBilly.Proto
                     if (IsWalkable(n) && seen.Add(n)) queue.Enqueue(n);
                 }
             }
-            return seen.Count == Width * Height - missing.Count;
+            return seen.Count == Width * Height - special.Count;
         }
+
+        void BuildRing()
+        {
+            Ring.Clear();
+            ringIndex.Clear();
+            int w = Width, h = Height;
+            for (int x = -1; x <= w; x++) Ring.Add(new Vector2Int(x, -1));     // bottom, left -> right
+            for (int y = 0; y <= h; y++) Ring.Add(new Vector2Int(w, y));       // right, bottom -> top
+            for (int x = w - 1; x >= -1; x--) Ring.Add(new Vector2Int(x, h));  // top, right -> left
+            for (int y = h - 1; y >= 0; y--) Ring.Add(new Vector2Int(-1, y));  // left, top -> bottom
+            for (int i = 0; i < Ring.Count; i++) ringIndex[Ring[i]] = i;
+        }
+
+        public bool IsRing(Vector2Int c) => ringIndex.ContainsKey(c);
+
 
         /// <summary>Rail enemies stand on the ring; grid enemies stand on the grid. They never cross over.</summary>
         public bool IsEnemyCell(Vector2Int c, bool rail) => rail ? IsRing(c) : IsWalkable(c);
@@ -259,6 +347,114 @@ namespace McBilly.Proto
             transform.localScale = Vector3.LerpUnclamped(fromScale, toScale, Ease.OutCubic(k));
             sr.color = sr.color.WithAlpha(fromAlpha * (1f - k));
             if (k >= 1f) Destroy(gameObject);
+        }
+    }
+
+    /// <summary>
+    /// A breakable floor tile. Intact: walkable, with cracks drawn on it. Stepped on: blinks for
+    /// McBillyGame.brokenCrackTime seconds (blinking faster toward the end). Then it breaks and acts
+    /// as a gap for McBillyGame.brokenDownTime seconds, then pops back to intact.
+    /// </summary>
+    public class BreakableTile : MonoBehaviour
+    {
+        enum State { Intact, Cracking, Down }
+
+        State state;
+        float t;
+        Color floorColor;
+        SpriteRenderer floor, rim, pit;
+        SpriteRenderer[] cracks;
+
+        public bool IsDown => state == State.Down;
+
+        public void Init(Color floorColor)
+        {
+            this.floorColor = floorColor;
+            floor = Prims.NewSprite("Floor", Prims.Square, floorColor, transform, -5, .94f);
+            cracks = new SpriteRenderer[3];
+            float[] angles = { 35f, -50f, 110f };
+            Vector3[] offsets = { new Vector3(-.12f, .1f), new Vector3(.12f, -.06f), new Vector3(.02f, -.2f) };
+            for (int i = 0; i < cracks.Length; i++)
+            {
+                cracks[i] = Prims.NewSprite("Crack", Prims.Square, Palette.Crack, transform, -4);
+                cracks[i].transform.localPosition = offsets[i];
+                cracks[i].transform.localRotation = Quaternion.Euler(0, 0, angles[i]);
+                cracks[i].transform.localScale = new Vector3(.38f, .035f, 1f);
+            }
+            rim = Prims.NewSprite("Rim", Prims.Square, Palette.GapRim, transform, -5, .94f);
+            pit = Prims.NewSprite("Pit", Prims.Square, Palette.Gap, transform, -4, .8f);
+            ShowIntact();
+        }
+
+        /// <summary>Start cracking (only from intact).</summary>
+        public void Trigger()
+        {
+            if (state != State.Intact) return;
+            state = State.Cracking;
+            t = 0f;
+        }
+
+        void Update()
+        {
+            var g = McBillyGame.I;
+            if (g == null) return;
+            float dt = Time.deltaTime;
+
+            switch (state)
+            {
+                case State.Cracking:
+                {
+                    t += dt;
+                    float crack = Mathf.Max(.05f, g.brokenCrackTime);
+                    float k = Mathf.Clamp01(t / crack);
+                    // Blink, speeding up as it's about to go.
+                    float freq = Mathf.Lerp(4f, 14f, k);
+                    bool lit = Mathf.Repeat(t * freq, 1f) < .5f;
+                    floor.color = lit ? Color.Lerp(floorColor, Palette.Warning, .55f) : floorColor;
+                    foreach (var c in cracks) c.color = lit ? Color.white.WithAlpha(.6f) : Palette.Crack;
+                    floor.transform.localPosition = (Vector3)(Random.insideUnitCircle * .025f * k); // tremble
+                    if (t >= crack) Break();
+                    break;
+                }
+                case State.Down:
+                    t += dt;
+                    if (t >= Mathf.Max(.05f, g.brokenDownTime)) Restore();
+                    break;
+            }
+        }
+
+        void Break()
+        {
+            state = State.Down;
+            t = 0f;
+            floor.enabled = false;
+            foreach (var c in cracks) c.enabled = false;
+            rim.enabled = pit.enabled = true;
+            // Debris falling in.
+            for (int i = 0; i < 5; i++)
+            {
+                Vector3 p = transform.position + (Vector3)(Random.insideUnitCircle * .3f);
+                FadeFx.Spawn(Prims.Square, floorColor, p, Random.Range(0f, 90f),
+                    Vector3.one * Random.Range(.12f, .22f), Vector3.zero, Random.Range(.25f, .4f), -3);
+            }
+        }
+
+        void Restore()
+        {
+            state = State.Intact;
+            t = 0f;
+            ShowIntact();
+            FadeFx.Spawn(Prims.Square, Color.white.WithAlpha(.35f), transform.position, 0f,
+                Vector3.one * .94f, Vector3.one * 1.1f, .2f, -3);
+        }
+
+        void ShowIntact()
+        {
+            floor.enabled = true;
+            floor.color = floorColor;
+            floor.transform.localPosition = Vector3.zero;
+            foreach (var c in cracks) { c.enabled = true; c.color = Palette.Crack; }
+            rim.enabled = pit.enabled = false;
         }
     }
 }

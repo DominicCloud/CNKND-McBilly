@@ -154,6 +154,19 @@ namespace McBilly.Proto
         public static readonly Color Brute = Hex(0xB26BFF);
         public static readonly Color Caster = Hex(0x4DE38A);
         public static readonly Color Patience = Hex(0xF2D14B);
+        public static readonly Color Coin = Hex(0xFF2EA6);     // hot pink, clearly not enemy orange
+        public static readonly Color CoinRim = Hex(0xA8106A);
+        public static readonly Color Pillar = Hex(0x5C566B);
+        public static readonly Color PillarEdge = Hex(0x857E96);
+        public static readonly Color PillarShadow = Hex(0x09080C);
+        public static readonly Color Vault = Hex(0x9C7A4E);
+        public static readonly Color VaultDark = Hex(0x6E5434);
+        public static readonly Color VaultEdge = Hex(0xC9A472);
+        public static readonly Color Gap = Hex(0x050407);
+        public static readonly Color GapRim = Hex(0x3A3445);
+        public static readonly Color PlayerShot = Hex(0xB8F3FF);
+        public static readonly Color Crack = Hex(0x0E0C12, .8f);
+        public static readonly Color VaultPrompt = Hex(0xC9A472, .35f);
         public static readonly Color Rail = new Color(1f, 1f, 1f, .1f);
         public static readonly Color BarBg = new Color(0f, 0f, 0f, .65f);
 

@@ -18,7 +18,8 @@ namespace McBilly.Proto
         public int Facing { get; private set; }
         public int HP { get; private set; }
         public int MaxHP { get; private set; }
-        public bool IsDodging => iframeT > 0f;
+        /// <summary>Attacks pass through: dodge i-frames, or mid-fall into a gap.</summary>
+        public bool IsDodging => iframeT > 0f || falling;
         public bool IsHurtInvulnerable => hurtT > 0f;
         public bool ParryActive => parryActiveT > 0f;
         public Vector3 CellWorld => G.Board.ToWorld(Cell);
@@ -42,7 +43,11 @@ namespace McBilly.Proto
         float nextStepT, dashLockT;
         float parryActiveT, parryCooldownT, shieldFlashT;
         float iframeT, hurtT, dodgeCooldownT, dodgeReadyFlashT;
-        float parryBufferT, dodgeBufferT;
+        float parryBufferT, dodgeBufferT, vaultBufferT, shootBufferT, shotCooldownT;
+        float vaultT = 1f, vaultDur = 1f; // hop animation
+        bool falling;
+        float fallT;
+        Vector2Int fallReturnCell;
         bool movePressBuffered;
 
         // late-parry grace
@@ -83,8 +88,17 @@ namespace McBilly.Proto
             {
                 TickTimers(dt);
                 HandleLook(dt);
-                HandleActions(dt);
-                HandleMovement(dt);
+                if (!falling)
+                {
+                    if (G.Board.Kind(Cell) == TileKind.Gap) FallInto(Cell);   // the tile broke under us
+                    else G.Board.Step(Cell);                                  // start cracking a breakable tile
+                }
+                if (falling) UpdateFall(dt);
+                else
+                {
+                    HandleActions(dt);
+                    HandleMovement(dt);
+                }
             }
             UpdateVisuals(dt);
         }
@@ -105,7 +119,18 @@ namespace McBilly.Proto
             }
             dodgeReadyFlashT -= dt;
 
-            if (input.ParryPressed) parryBufferT = T.inputBuffer; else parryBufferT -= dt;
+            // Space is contextual: vault if facing a vaultable crate, otherwise parry. (A) only vaults.
+            bool parryPress = input.ParryPressed;
+            if (input.SpacePressed || input.VaultPressed)
+            {
+                if (!falling && CanVault(out _)) vaultBufferT = T.inputBuffer;
+                else if (input.SpacePressed) parryPress = true;
+            }
+            else vaultBufferT -= dt;
+
+            if (parryPress) parryBufferT = T.inputBuffer; else parryBufferT -= dt;
+            if (input.ShootPressed) shootBufferT = T.inputBuffer; else shootBufferT -= dt;
+            shotCooldownT -= dt;
             // Dodge presses during the cooldown are ignored (not queued), unless they land in the
             // last few ms of it, so mashing can't bypass the cooldown but a well-timed press still counts.
             if (input.DodgePressed && dodgeCooldownT <= T.inputBuffer) dodgeBufferT = T.inputBuffer;
@@ -157,6 +182,12 @@ namespace McBilly.Proto
                 }
             }
 
+            if (vaultBufferT > 0f && dashLockT <= 0f && CanVault(out var crate))
+            {
+                vaultBufferT = 0f;
+                Vault(crate);
+            }
+
             if (dodgeBufferT > 0f && dodgeCooldownT <= 0f)
             {
                 dodgeBufferT = 0f;
@@ -167,6 +198,13 @@ namespace McBilly.Proto
             {
                 parryBufferT = 0f;
                 StartParry();
+            }
+
+            bool wantShot = shootBufferT > 0f || (T.holdToAutoFire && input.ShootHeld);
+            if (wantShot && shotCooldownT <= 0f)
+            {
+                shootBufferT = 0f;
+                Shoot();
             }
         }
 
@@ -198,12 +236,20 @@ namespace McBilly.Proto
         bool TryStep(Vector2Int dir)
         {
             var target = Cell + dir;
-            if (!G.Board.IsWalkable(target) || G.Board.EnemyAt(target) != null)
+            var kind = G.Board.Kind(target);
+            if (!G.Board.InBounds(target) || G.Board.EnemyAt(target) != null
+                || kind == TileKind.Pillar || kind == TileKind.Vault)
             {
                 bump = (Vector2)dir * .16f; // blocked: a little nudge so the input still "registers"
                 return false;
             }
+            if (kind == TileKind.Gap)
+            {
+                FallInto(target);
+                return true;
+            }
             Cell = target;
+            G.TryCollectCoin(Cell);
             SlideTo(StepInterval * T.slideFraction);
             return true;
         }
@@ -246,18 +292,29 @@ namespace McBilly.Proto
 
             G.CheckPerfectDodge(origin);
 
+            // Walls, pillars, vault crates and enemies stop the dash. Gaps are flown over, but the dash
+            // only ever lands on solid floor: if it would end in a gap it stops at the last floor tile.
             var dest = Cell;
+            var probe = Cell;
             for (int i = 0; i < T.dodgeDistance; i++)
             {
-                var next = dest + dir;
-                if (!G.Board.IsWalkable(next) || G.Board.EnemyAt(next) != null) break; // walls, holes and enemies stop the dash
-                dest = next;
+                var next = probe + dir;
+                if (!G.Board.InBounds(next) || G.Board.EnemyAt(next) != null) break;
+                var kind = G.Board.Kind(next);
+                if (kind == TileKind.Pillar || kind == TileKind.Vault) break;
+                probe = next;
+                if (kind == TileKind.Floor || kind == TileKind.Broken)
+                {
+                    dest = probe;
+                    G.TryCollectCoin(dest); // dashing over a coin grabs it
+                }
             }
 
             Cell = dest;
             SlideTo(T.dodgeVisualTime);
             dashLockT = T.dodgeVisualTime;
             iframeT = T.dodgeInvulnerability;
+            G.OnPlayerDodged();
             dodgeCooldownT = T.dodgeCooldownTime;
             dodgeReadyFlashT = 0f;
             movePressBuffered = false;
@@ -270,6 +327,85 @@ namespace McBilly.Proto
                 Vector3 p = Vector3.Lerp(originWorld, destWorld, i / 3f);
                 FadeFx.Spawn(Prims.Triangle, Palette.Player.WithAlpha(.35f - i * .08f), p, aimAngle,
                     Vector3.one * .9f, Vector3.one * .7f, .18f, 12);
+            }
+        }
+
+        // ---------------- Shooting ----------------
+
+        void Shoot()
+        {
+            shotCooldownT = T.shotCooldown;
+            Vector2 dir = Dir8.Unit(Facing);
+            Vector3 muzzle = CellWorld + (Vector3)(dir * .45f);
+            PlayerShot.Spawn(muzzle, Facing, T.shotSpeed, T.shotPatienceDamage);
+            FadeFx.Spawn(Prims.Ring, Palette.PlayerShot.WithAlpha(.7f), muzzle, 0f, Vector3.one * .15f, Vector3.one * .45f, .1f, 32);
+            bump -= dir * .07f; // tiny recoil
+        }
+
+        // ---------------- Vault ----------------
+
+        /// <summary>
+        /// Facing a vault crate with solid, empty floor right behind it?
+        /// Works in all 8 directions (it's the tile McBilly is looking at).
+        /// </summary>
+        public bool CanVault(out Vector2Int crate)
+        {
+            var dir = Dir8.Vec(Facing);
+            crate = Cell + dir;
+            if (falling || G.Board.Kind(crate) != TileKind.Vault || !G.Board.InBounds(crate)) return false;
+            var land = crate + dir;
+            return G.Board.IsSolid(land) && G.Board.EnemyAt(land) == null;
+        }
+
+        void Vault(Vector2Int crate)
+        {
+            Cell = crate + Dir8.Vec(Facing);
+            SlideTo(T.vaultTime);
+            dashLockT = T.vaultTime;
+            vaultT = 0f;
+            vaultDur = T.vaultTime;
+            if (T.vaultInvulnerable) iframeT = Mathf.Max(iframeT, T.vaultTime);
+            nextStepT = 0f;
+            movePressBuffered = false;
+            G.TryCollectCoin(Cell);
+            FadeFx.Spawn(Prims.Ring, Palette.VaultEdge.WithAlpha(.6f), G.Board.ToWorld(crate), 0f,
+                Vector3.one * .4f, Vector3.one * 1f, .2f, 30);
+        }
+
+        // ---------------- Gaps ----------------
+
+        void FallInto(Vector2Int gap)
+        {
+            fallReturnCell = Cell;
+            Cell = gap;
+            SlideTo(StepInterval * T.slideFraction);
+            falling = true;
+            fallT = 0f;
+            pendingHit = false;
+            parryActiveT = 0f;
+        }
+
+        void UpdateFall(float dt)
+        {
+            fallT += dt;
+            if (fallT < T.fallTime) return;
+
+            // Climb back out where we stepped from, hurt.
+            falling = false;
+            // Back where we came from, unless that's not solid floor any more (e.g. it was a breakable tile that broke).
+            Cell = G.Board.Kind(fallReturnCell) == TileKind.Floor && G.Board.EnemyAt(fallReturnCell) == null
+                ? fallReturnCell
+                : G.Board.NearestSafeCell(fallReturnCell);
+            transform.position = visFrom = visTo = CellWorld;
+            visT = 1f;
+            facePop = 1f;
+            nextStepT = StepInterval;
+            movePressBuffered = false;
+            if (T.fallDamage > 0)
+            {
+                HP = Mathf.Max(0, HP - T.fallDamage);
+                hurtT = T.hurtInvulnerability;
+                G.OnPlayerHurt("FELL!");
             }
         }
 
@@ -305,11 +441,33 @@ namespace McBilly.Proto
             // Facing: turns at Rotation Speed, with a quick pop each time it crosses into a new direction.
             facePop = Mathf.Max(0f, facePop - dt / .08f);
             visual.localRotation = Quaternion.Euler(0f, 0f, aimAngle);
-            visual.localScale = Vector3.one * (1f + .14f * facePop);
+            float scale = 1f + .14f * facePop;
+
+            // Vault hop: grow and lift at the top of the arc.
+            if (vaultT < vaultDur)
+            {
+                vaultT += dt;
+                float hop = Mathf.Sin(Mathf.Clamp01(vaultT / vaultDur) * Mathf.PI);
+                scale *= 1f + .4f * hop;
+                visual.localPosition = new Vector3(0f, .3f * hop, 0f);
+            }
+            else visual.localPosition = Vector3.zero;
+
+            // Falling: shrink and spin down the hole.
+            if (falling)
+            {
+                float k = Mathf.Clamp01(fallT / T.fallTime);
+                scale *= 1f - k;
+                visual.localRotation = Quaternion.Euler(0f, 0f, aimAngle + k * 540f);
+            }
+            visual.localScale = Vector3.one * scale;
 
             // Tile you're facing (where parries count from).
             facingTile.transform.position = CellWorld + (Vector3)(Vector2)Dir8.Vec(Facing);
-            facingTile.enabled = G.Board.IsWalkable(Cell + Dir8.Vec(Facing));
+            var front = Cell + Dir8.Vec(Facing);
+            bool canVault = CanVault(out _);
+            facingTile.enabled = !falling && (G.Board.IsSolid(front) || canVault);
+            facingTile.color = canVault ? Palette.VaultPrompt : Palette.FacingTile;
 
             // Shield bar in front while the parry window is open.
             bool showShield = parryActiveT > 0f || shieldFlashT > 0f;

@@ -11,7 +11,9 @@ namespace McBilly.Proto
     /// Move : WASD, D-pad, left stick           (most recently pressed direction wins)
     /// Look : mouse, right stick, arrow keys    (snapped to 8 directions)
     /// Parry: RB, left mouse, J, Space
+    /// Vault: Space or (A) while facing a vault crate (Space parries otherwise)
     /// Dodge: LB, right mouse, K, Left Shift
+    /// Shoot: RT, F, middle mouse (hold to auto-fire)
     /// </summary>
     public class InputReader
     {
@@ -20,7 +22,13 @@ namespace McBilly.Proto
         public bool MovePressed { get; private set; }
         public int Look { get; private set; }
         public bool ParryPressed { get; private set; }
+        /// <summary>Space: vaults if McBilly is facing a crate, otherwise parries (the player decides).</summary>
+        public bool SpacePressed { get; private set; }
+        /// <summary>Gamepad (A): vault only.</summary>
+        public bool VaultPressed { get; private set; }
         public bool DodgePressed { get; private set; }
+        public bool ShootPressed { get; private set; }
+        public bool ShootHeld { get; private set; }
 
         public bool allowDiagonalMove;
         public float moveStickDeadzone = .5f;
@@ -52,7 +60,18 @@ namespace McBilly.Proto
             ParryPressed =
                 (gp != null && gp.rightShoulder.wasPressedThisFrame) ||
                 (mouse != null && mouse.leftButton.wasPressedThisFrame) ||
-                (kb != null && (kb.jKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame));
+                (kb != null && kb.jKey.wasPressedThisFrame);
+            SpacePressed = kb != null && kb.spaceKey.wasPressedThisFrame;
+            VaultPressed = gp != null && gp.buttonSouth.wasPressedThisFrame;
+
+            ShootPressed =
+                (gp != null && gp.rightTrigger.wasPressedThisFrame) ||
+                (mouse != null && mouse.middleButton.wasPressedThisFrame) ||
+                (kb != null && kb.fKey.wasPressedThisFrame);
+            ShootHeld =
+                (gp != null && gp.rightTrigger.isPressed) ||
+                (mouse != null && mouse.middleButton.isPressed) ||
+                (kb != null && kb.fKey.isPressed);
 
             DodgePressed =
                 (gp != null && gp.leftShoulder.wasPressedThisFrame) ||
