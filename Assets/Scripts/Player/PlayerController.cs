@@ -110,6 +110,8 @@ public class PlayerController : MonoBehaviour
     
     public bool IsDashing => isDashing;
     public bool IsInvincible => Time.time < invincibleUntil;
+
+    public event Action OnDashed;
     
     
     
@@ -341,6 +343,7 @@ public class PlayerController : MonoBehaviour
         {
             return;
         }
+        OnDashed?.Invoke();
 
         facingDirection = direction;
         currentCell = destination;
